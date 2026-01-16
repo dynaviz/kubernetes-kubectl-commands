@@ -9,6 +9,14 @@
 
 `minikube`
 
+> **Note:** If you are using a Mac with Apple Silicon (M1/M2 or later), the installation and setup is different, as Hyperkit is only supported on Intel-based Macs.  
+> **For Apple Silicon:**  
+> - Do **not** install Hyperkit.  
+> - Use the Docker driver or QEMU (if available). Example to start Minikube:  
+>   `minikube start --driver=docker`  
+>   Ensure you have Docker Desktop for Mac installed and running.  
+> For more details, refer to the [Minikube Apple Silicon Docs](https://minikube.sigs.k8s.io/docs/drivers/docker/).
+
 ### create minikube cluster
 `minikube start --vm-driver=hyperkit`
 
@@ -72,7 +80,3 @@
 #Metrics
 
 `kubectl top` The kubectl top command returns current CPU and memory usage for a cluster’s pods or nodes, or for a particular pod or node if specified.
-
-
-
-
