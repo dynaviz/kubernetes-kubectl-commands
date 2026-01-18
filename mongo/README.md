@@ -2,6 +2,8 @@
 
 This guide explains how to deploy MongoDB and MongoExpress to your Kubernetes cluster. MongoExpress provides a web-based UI to manage your MongoDB databases.
 
+> **📖 New to Minikube?** See [README-MINIKUBE.md](README-MINIKUBE.md) for complete Minikube installation and configuration guide based on this setup.
+
 ## Prerequisites
 - A running Kubernetes cluster (e.g., Minikube, Docker Desktop, or cloud provider)
 - `kubectl` installed and configured to access your cluster
