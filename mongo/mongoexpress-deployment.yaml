@@ -22,18 +22,19 @@ spec:
           ports:
             - containerPort: 8081
           env:
-            - name: ME_CONFIG_MONGODB_ADMINUSERNAME 
+            - name: ME_CONFIG_MONGODB_URL
+              value: "mongodb://mongoadmin:password@mongodb-service:27017/"
+            - name: ME_CONFIG_BASICAUTH_USERNAME
               valueFrom:
                 secretKeyRef:
                   name: mongoexpress-secret
-                  key: ME_CONFIG_MONGODB_ADMINUSERNAME
-            - name: ME_CONFIG_MONGODB_ADMINPASSWORD
+                  key: ME_CONFIG_BASICAUTH_USERNAME
+            - name: ME_CONFIG_BASICAUTH_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: mongoexpress-secret
-                  key: ME_CONFIG_MONGODB_ADMINPASSWORD
-            - name: ME_CONFIG_MONGODB_SERVER
-              valueFrom:
-                configMapKeyRef:
-                  name: mongodb-configmap
-                  key: MONGODB_HOST  
+                  key: ME_CONFIG_BASICAUTH_PASSWORD
+            - name: ME_CONFIG_SITE_COOKIESECURE
+              value: "false"
+            - name: ME_CONFIG_SITE_BASEURL
+              value: "/"  
