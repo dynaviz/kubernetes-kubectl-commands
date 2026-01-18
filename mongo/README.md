@@ -6,12 +6,14 @@ This guide explains how to deploy MongoDB and MongoExpress to your Kubernetes cl
 - A running Kubernetes cluster (e.g., Minikube, Docker Desktop, or cloud provider)
 - `kubectl` installed and configured to access your cluster
 - For remote access: Minikube running on a remote VM (e.g., 194.35.13.113)
+- **Storage:** At least 1Gi of available storage for MongoDB data persistence
 
 ## Files
 ### MongoDB
 - `mongodb-secret.yaml`: Contains MongoDB root username and password
 - `mongodb-configmap.yaml`: MongoDB service host configuration
-- `mongodb-deployment.yaml`: MongoDB Deployment definition
+- `mongodb-pvc.yaml`: PersistentVolumeClaim for MongoDB data storage (1Gi)
+- `mongodb-deployment.yaml`: MongoDB Deployment definition with persistent storage
 - `mongodb-service.yaml`: MongoDB Service (internal cluster access)
 
 ### MongoExpress
@@ -27,6 +29,7 @@ This guide explains how to deploy MongoDB and MongoExpress to your Kubernetes cl
 ```sh
 kubectl apply -f mongodb-secret.yaml
 kubectl apply -f mongodb-configmap.yaml
+kubectl apply -f mongodb-pvc.yaml
 kubectl apply -f mongodb-deployment.yaml
 kubectl apply -f mongodb-service.yaml
 ```
@@ -59,6 +62,205 @@ You should see:
 **Step 4: Set up permanent port-forwarding (for internet access)**
 
 See **Option 3: Persistent Port-Forward as Systemd Service** below.
+
+---
+
+## Persistent Storage for MongoDB
+
+MongoDB data is now stored in a PersistentVolumeClaim (PVC), which means:
+- **Data survives pod deletion** - Your data is safe even if you delete the MongoDB pod
+- **Data survives deployment deletion** - Data persists even if you delete the deployment
+- **Data survives VM reboot** - Data is stored on the Minikube node and persists across restarts
+
+### How It Works
+
+The MongoDB deployment uses:
+- **PersistentVolumeClaim (PVC):** `mongodb-pvc` - Requests 1Gi of storage
+- **Volume Mount:** `/data/db` - MongoDB's default data directory
+- **Storage Class:** `standard` (Minikube default)
+
+### Checking Persistent Storage Status
+
+**View PersistentVolumeClaim:**
+```sh
+kubectl get pvc
+```
+
+Expected output:
+```
+NAME          STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS
+mongodb-pvc   Bound    pvc-xxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx     1Gi        RWO            standard
+```
+
+**View PersistentVolume:**
+```sh
+kubectl get pv
+```
+
+**Check PVC details:**
+```sh
+kubectl describe pvc mongodb-pvc
+```
+
+**Check which pod is using the PVC:**
+```sh
+kubectl get pods -o=jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.volumes[*].persistentVolumeClaim.claimName}{"\n"}{end}'
+```
+
+### Testing Data Persistence
+
+**Test that data persists after pod deletion:**
+
+1. Create test data in MongoDB:
+   - Access MongoExpress at `http://194.35.13.113:8081`
+   - Create a new database (e.g., `testdb`)
+   - Create a collection and add some documents
+
+2. Delete the MongoDB pod:
+   ```sh
+   kubectl delete pod -l app=mongodb
+   ```
+
+3. Wait for new pod to start:
+   ```sh
+   kubectl get pods -l app=mongodb -w
+   ```
+
+4. Access MongoExpress again and verify your test data is still there
+
+**Test that data persists after deployment deletion:**
+
+1. Delete the MongoDB deployment (but keep the PVC):
+   ```sh
+   kubectl delete deployment mongo-deployment
+   ```
+
+2. Reapply the deployment:
+   ```sh
+   kubectl apply -f mongo/mongodb-deployment.yaml
+   ```
+
+3. Your data will still be intact because the PVC was not deleted
+
+### Managing Persistent Storage
+
+**View storage usage:**
+```sh
+# Get PVC status
+kubectl get pvc mongodb-pvc
+
+# Describe PVC for more details
+kubectl describe pvc mongodb-pvc
+```
+
+**Increase storage size (if needed in the future):**
+
+Edit `mongodb-pvc.yaml` and change the storage request:
+```yaml
+resources:
+  requests:
+    storage: 5Gi  # Increase from 1Gi to 5Gi
+```
+
+Then apply:
+```sh
+kubectl apply -f mongo/mongodb-pvc.yaml
+```
+
+**Note:** Not all storage classes support volume expansion. Check with:
+```sh
+kubectl get storageclass
+```
+
+### Backup and Restore
+
+**Backup MongoDB data:**
+```sh
+# Method 1: Using mongodump (requires MongoDB tools)
+kubectl exec -it <mongo-pod-name> -- mongodump --uri="mongodb://mongoadmin:Mongo%402024Secure@localhost:27017" --out=/tmp/backup
+kubectl cp <mongo-pod-name>:/tmp/backup ./mongodb-backup
+
+# Method 2: Export specific database via MongoExpress web UI
+# - Navigate to the database
+# - Click "Export" button
+# - Download JSON/CSV
+```
+
+**Restore MongoDB data:**
+```sh
+# Copy backup to pod
+kubectl cp ./mongodb-backup <mongo-pod-name>:/tmp/backup
+
+# Restore using mongorestore
+kubectl exec -it <mongo-pod-name> -- mongorestore --uri="mongodb://mongoadmin:Mongo%402024Secure@localhost:27017" /tmp/backup
+```
+
+### Cleaning Up Storage
+
+**WARNING:** Deleting the PVC will permanently delete all MongoDB data!
+
+**To completely remove MongoDB including data:**
+```sh
+# Delete deployment
+kubectl delete deployment mongo-deployment
+
+# Delete service
+kubectl delete service mongodb-service
+
+# Delete secrets and configmap
+kubectl delete secret mongodb-secret
+kubectl delete configmap mongodb-configmap
+
+# Delete PVC (THIS DELETES ALL DATA!)
+kubectl delete pvc mongodb-pvc
+```
+
+**To keep data but remove the deployment:**
+```sh
+# Delete only deployment and service
+kubectl delete deployment mongo-deployment
+kubectl delete service mongodb-service
+
+# PVC and data remain intact
+# Reapply deployment later to reattach to existing data
+```
+
+### Storage Troubleshooting
+
+**PVC stuck in "Pending" state:**
+```sh
+# Check PVC events
+kubectl describe pvc mongodb-pvc
+
+# Check if storage class exists
+kubectl get storageclass
+
+# For Minikube, ensure it's running
+minikube status
+```
+
+**Pod can't mount volume:**
+```sh
+# Check pod events
+kubectl describe pod -l app=mongodb
+
+# Check PVC status
+kubectl get pvc
+
+# Check PV status
+kubectl get pv
+```
+
+**Need to reset data (start fresh):**
+```sh
+# Delete pod, deployment, and PVC
+kubectl delete deployment mongo-deployment
+kubectl delete pvc mongodb-pvc
+
+# Recreate PVC and deployment
+kubectl apply -f mongo/mongodb-pvc.yaml
+kubectl apply -f mongo/mongodb-deployment.yaml
+```
 
 ---
 
@@ -575,11 +777,21 @@ kubectl delete -f mongodb-service.yaml
 kubectl delete -f mongodb-deployment.yaml
 kubectl delete -f mongodb-configmap.yaml
 kubectl delete -f mongodb-secret.yaml
+kubectl delete -f mongodb-pvc.yaml  # WARNING: This deletes all MongoDB data!
 ```
 
-**Or remove all at once:**
+**Or remove all at once (including data):**
 ```sh
 kubectl delete -f mongo/
+```
+
+**To remove everything EXCEPT data (keep PVC):**
+```sh
+kubectl delete deployment mongo-deployment mongo-express
+kubectl delete service mongodb-service mongoexpress-service
+kubectl delete secret mongodb-secret mongoexpress-secret
+kubectl delete configmap mongodb-configmap
+# PVC mongodb-pvc is preserved with all data
 ```
 
 **Remove the systemd port-forward service:**
@@ -1273,7 +1485,8 @@ mongo/
 ├── README.md                      # This documentation
 ├── mongodb-secret.yaml            # MongoDB credentials
 ├── mongodb-configmap.yaml         # MongoDB configuration
-├── mongodb-deployment.yaml        # MongoDB deployment
+├── mongodb-pvc.yaml               # PersistentVolumeClaim for MongoDB data (1Gi)
+├── mongodb-deployment.yaml        # MongoDB deployment with persistent storage
 ├── mongodb-service.yaml           # MongoDB service (internal)
 ├── mongoexpress-secret.yaml       # MongoExpress web UI credentials
 ├── mongoexpress-deployment.yaml   # MongoExpress deployment with MongoDB connection
